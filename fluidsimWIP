@@ -1,0 +1,86 @@
+@tool
+extends Node2D
+
+
+@export var start_simulation : bool = true
+@export var num_particles : int = 8
+@export var gravity : float = 10
+var positions : Array[Vector2]
+var velocities : Array[Vector2]
+@export var particle_size : float = 1.0
+@export var particle_spacing : float = 0.1
+@export var collision_damping : float = 0.8
+@export var bounds_size : Vector2
+@export var smoothing_radius : float = 0.5
+
+
+func _ready() -> void:
+	start()
+
+func start() -> void:
+	# Create particle arrays
+	positions.resize(num_particles)
+	velocities.resize(num_particles)
+	
+	# Place particless in a grid formation
+	var particles_per_row: int = sqrt(num_particles)
+	var particles_per_col: int = (num_particles -1) / particles_per_row + 1
+	var spacing: float = particle_size * 2 + particle_spacing
+	
+	for i in num_particles:
+		var x: float = (i % particles_per_row - particles_per_row / 2.0 + 0.5) * spacing
+		var y: float = (i / particles_per_row - particles_per_col / 2.0 + 0.5) * spacing
+		positions[i] = Vector2(x, y)
+
+func _process(delta: float) -> void:
+	if not start_simulation:
+		return
+	
+	if not Engine.is_editor_hint():
+		for i in num_particles:
+			velocities[i] += Vector2.DOWN * gravity * delta
+			positions[i] += velocities[i] * delta
+			resolve_collision(i)
+			calculate_density(positions[i])
+	
+	queue_redraw()
+	
+	if Engine.is_editor_hint():
+		start()
+
+func resolve_collision(i: int) -> void:
+	var half_bound_size: Vector2 = bounds_size / 2 - Vector2.ONE * particle_size
+	
+	if (abs(positions[i].x) > half_bound_size.x):
+		positions[i].x = half_bound_size.x * sign(positions[i].x)
+		velocities[i].x *= -1 * collision_damping
+	if (abs(positions[i].y) > half_bound_size.y):
+		positions[i].y = half_bound_size.y * sign(positions[i].y)
+		velocities[i].y *= -1 * collision_damping
+
+
+func _draw() -> void:
+	for i in positions.size():
+		draw_circle(positions[i], particle_size, Color("0291ff"))
+	
+	draw_rect(Rect2(self.position.x - bounds_size.x / 2, self.position.y - bounds_size.y / 2, bounds_size.x, bounds_size.y), Color("F5a9B8"), false, 0.05)
+
+
+# Make a (smooth) slope
+func smoothing_kernel(radius: float, dst: float) -> float:
+	var volume: float = PI * pow(radius, 8) / 4
+	var value: float = max(0, radius * radius - dst * dst)
+	return value * value * value / volume
+
+func calculate_density(sample_point: Vector2) -> float:
+	var density: float = 0
+	var mass: float = 1
+	
+	# Loop over all particles positions
+	# TODO: optimize to only look at particles inside the smoothing radius
+	for fluid_position in positions:
+		var dst: float = (fluid_position - sample_point).length()
+		var influence: float = smoothing_kernel(smoothing_radius, dst)
+		density += mass * influence
+	
+	return density
